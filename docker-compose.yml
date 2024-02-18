@@ -19,6 +19,7 @@ services:
 
   db:
     image: postgres:latest
+    restart: always
     hostname: db
     environment:
       - POSTGRES_PASSWORD=123

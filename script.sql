@@ -15,6 +15,7 @@ CREATE TABLE transacoes (
 	CONSTRAINT fk_clientes_transacoes_id
 		FOREIGN KEY (cliente_id) REFERENCES clientes(id)
 );
+CREATE INDEX idx_cliente_id ON transacoes(cliente_id);
 
 DO $$
 BEGIN
