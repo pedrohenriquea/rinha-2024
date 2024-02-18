@@ -17,6 +17,7 @@ func main() {
 
 	r := chi.NewRouter()
 	r.Post("/clientes/{id}/transacoes", handlers.RealizarTransacao)
+	r.Get("/clientes/{id}/extrato", handlers.BuscarExtrato)
 
 	http.ListenAndServe(fmt.Sprintf(":%s", configs.GetServerPort()), r)
 }
