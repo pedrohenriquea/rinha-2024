@@ -22,8 +22,7 @@ func RealizarTransacao(w http.ResponseWriter, r *http.Request) {
 
 	// Decodificar o corpo da requisição em uma estrutura de Transacao
 	var transacaoRequest models.Transacao
-	err = json.NewDecoder(r.Body).Decode(&transacaoRequest)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&transacaoRequest); err != nil {
 		http.Error(w, "Erro ao decodificar o corpo da requisição", http.StatusBadRequest)
 		return
 	}
@@ -35,7 +34,7 @@ func RealizarTransacao(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if transacaoRequest.Tipo != "c" && transacaoRequest.Tipo != "d" {
-		http.Error(w, "'tipo' deve ser apenas c para crédito ou d para débito.", http.StatusBadRequest)
+		http.Error(w, "'tipo' deve ser apenas 'c' para crédito ou 'd' para débito.", http.StatusBadRequest)
 		return
 	}
 
@@ -44,18 +43,19 @@ func RealizarTransacao(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Realizar a transação
 	resp, err := models.InsertTransacaoSelectForUpdate(idCliente, transacaoRequest)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		switch {
+		case err.Error() == "BUSCA_CLIENTE_EXCEPTION":
 			http.Error(w, "Cliente não encontrado", http.StatusNotFound)
-		} else if err.Error() == "LIMITE_EXCEPTION" {
+		case err.Error() == "LIMITE_EXCEPTION":
 			http.Error(w, "Transação de débito ultrapassa o limite disponível do cliente", http.StatusUnprocessableEntity)
-		} else if err.Error() == "BUSCA_CLIENTE_EXCEPTION" {
-			http.Error(w, "Cliente não encontrado", http.StatusNotFound)
-		} else {
+		default:
 			log.Printf("Erro inesperado: %v", err)
 			http.Error(w, "Erro inesperado", http.StatusInternalServerError)
 		}
+		return
 	}
 
 	// Codificar a resposta como JSON e enviá-la
@@ -74,9 +74,20 @@ func BuscarExtrato(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Cliente não encontrado", http.StatusNotFound)
+			return
 		}
+		http.Error(w, "Erro interno do servidor", http.StatusInternalServerError)
+		log.Printf("Erro ao buscar extrato: %v", err)
+		return
 	}
 
+	// Configurar cabeçalho de resposta
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+
+	// Escrever resposta no corpo da resposta
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, "Erro ao codificar resposta", http.StatusInternalServerError)
+		log.Printf("Erro ao codificar resposta JSON: %v", err)
+		return
+	}
 }
