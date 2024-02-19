@@ -23,23 +23,23 @@ func RealizarTransacao(w http.ResponseWriter, r *http.Request) {
 	// Decodificar o corpo da requisição em uma estrutura de Transacao
 	var transacaoRequest models.Transacao
 	if err := json.NewDecoder(r.Body).Decode(&transacaoRequest); err != nil {
-		http.Error(w, "Erro ao decodificar o corpo da requisição", http.StatusBadRequest)
+		http.Error(w, "Erro ao decodificar o corpo da requisição", http.StatusUnprocessableEntity)
 		return
 	}
 
 	// Validar request
 	if transacaoRequest.Valor <= 0 {
-		http.Error(w, "'valor' deve ser um número inteiro positivo que representa centavos", http.StatusBadRequest)
+		http.Error(w, "'valor' deve ser um número inteiro positivo que representa centavos", http.StatusUnprocessableEntity)
 		return
 	}
 
 	if transacaoRequest.Tipo != "c" && transacaoRequest.Tipo != "d" {
-		http.Error(w, "'tipo' deve ser apenas 'c' para crédito ou 'd' para débito.", http.StatusBadRequest)
+		http.Error(w, "'tipo' deve ser apenas 'c' para crédito ou 'd' para débito.", http.StatusUnprocessableEntity)
 		return
 	}
 
 	if len(transacaoRequest.Descricao) < 1 || len(transacaoRequest.Descricao) > 10 {
-		http.Error(w, "'descricao' deve ser uma string de 1 a 10 caracteres.", http.StatusBadRequest)
+		http.Error(w, "'descricao' deve ser uma string de 1 a 10 caracteres.", http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -66,7 +66,7 @@ func RealizarTransacao(w http.ResponseWriter, r *http.Request) {
 func BuscarExtrato(w http.ResponseWriter, r *http.Request) {
 	idCliente, err := strconv.Atoi(chi.URLParam(r, "id"))
 	if err != nil {
-		http.Error(w, "[id] (na URL) deve ser um número inteiro representando a identificação do cliente", http.StatusBadRequest)
+		http.Error(w, "[id] (na URL) deve ser um número inteiro representando a identificação do cliente", http.StatusUnprocessableEntity)
 		return
 	}
 
