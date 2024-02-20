@@ -1,20 +1,31 @@
 package models
 
 import (
-	"api/db"
+	"context"
 	"log"
 	"time"
+
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
-func GetExtrato(idCliente int) (extrato Extrato, err error) {
+func GetExtrato(idCliente int, dbPool *pgxpool.Pool) (extrato Extrato, err error) {
+	ctx := context.Background()
+
+	// Iniciando a transação
+	tx, err := dbPool.Begin(ctx)
+	if err != nil {
+		return Extrato{}, err
+	}
+	defer tx.Rollback(ctx)
+
 	// Obter informações do cliente
-	cliente, err := GetClienteByID(idCliente)
+	cliente, err := GetClienteByID(idCliente, dbPool)
 	if err != nil {
 		return
 	}
 
 	// Obter últimas transações do extrato
-	ultimasTransacoes, err := GetUltimasTransacoesExtrato(idCliente)
+	ultimasTransacoes, err := GetUltimasTransacoesExtrato(idCliente, dbPool)
 	if err != nil {
 		return
 	}
@@ -29,26 +40,22 @@ func GetExtrato(idCliente int) (extrato Extrato, err error) {
 		UltimasTransacoes: ultimasTransacoes,
 	}
 
+	// Commit da transação
+	if err := tx.Commit(ctx); err != nil {
+		return Extrato{}, err
+	}
+
 	return extrato, nil
 }
 
-func GetClienteByID(idCliente int) (cliente Cliente, err error) {
-	conn, err := db.OpenConnection()
-	if err != nil {
-		return cliente, err
-	}
-	defer conn.Close()
+func GetClienteByID(idCliente int, dbPool *pgxpool.Pool) (cliente Cliente, err error) {
+	ctx := context.Background()
 
 	// Preparar a consulta
-	stmt, err := conn.Prepare(`SELECT limite, saldo FROM clientes WHERE id=$1`)
+	row := dbPool.QueryRow(ctx, `SELECT limite, saldo FROM clientes WHERE id=$1`, idCliente)
 	if err != nil {
 		return cliente, err
 	}
-	defer stmt.Close()
-
-	// Executar a consulta
-	row := stmt.QueryRow(idCliente)
-
 	// Obter os resultados
 	err = row.Scan(&cliente.Limite, &cliente.Saldo)
 	if err != nil {
@@ -58,26 +65,14 @@ func GetClienteByID(idCliente int) (cliente Cliente, err error) {
 	return cliente, nil
 }
 
-func GetUltimasTransacoesExtrato(idCliente int) (transacoes []TransacaoExtrato, err error) {
-	conn, err := db.OpenConnection()
-	if err != nil {
-		return
-	}
-	defer conn.Close()
+func GetUltimasTransacoesExtrato(idCliente int, dbPool *pgxpool.Pool) (transacoes []TransacaoExtrato, err error) {
+	ctx := context.Background()
 
 	// Preparar a consulta
-	stmt, err := conn.Prepare(`SELECT valor, tipo, descricao, realizada_em FROM transacoes WHERE cliente_id=$1 ORDER BY realizada_em DESC LIMIT 10`)
+	rows, err := dbPool.Query(ctx, `SELECT valor, tipo, descricao, realizada_em FROM transacoes WHERE cliente_id=$1 ORDER BY realizada_em DESC LIMIT 10`, idCliente)
 	if err != nil {
 		return
 	}
-	defer stmt.Close()
-
-	// Executar a consulta
-	rows, err := stmt.Query(idCliente)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
 
 	// Iterar sobre os resultados
 	for rows.Next() {

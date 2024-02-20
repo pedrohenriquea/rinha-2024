@@ -1,43 +1,26 @@
 package models
 
 import (
-	"api/db"
 	"context"
 	"errors"
 	"strings"
+
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
-func InsertTransacao(idCliente int, transacao Transacao) (id int64, err error) {
-	conn, err := db.OpenConnection()
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	sql := `INSERT INTO transacoes (cliente_id, valor, tipo, descricao, realizada_em) VALUES($1, $2, $3, $4, now()) RETURNING id`
-
-	err = conn.QueryRow(sql, idCliente, transacao.Valor, transacao.Tipo, transacao.Descricao).Scan(&id)
-
-	return
-}
-
-func InsertTransacaoSelectForUpdate(idCliente int, transacaoRequest Transacao) (_ *Cliente, err error) {
-	conn, err := db.OpenConnection()
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
+func InsertTransacaoSelectForUpdate(idCliente int, transacaoRequest Transacao, dbPool *pgxpool.Pool) (_ *Cliente, err error) {
+	ctx := context.Background()
 
 	// Iniciando a transação
-	tx, err := conn.BeginTx(context.Background(), nil)
+	tx, err := dbPool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
 	// Busca os dados do cliente
 	var cliente Cliente
-	rowCliente := conn.QueryRow(`SELECT limite, saldo FROM clientes WHERE id=$1 FOR UPDATE`, idCliente)
+	rowCliente := dbPool.QueryRow(ctx, `SELECT limite, saldo FROM clientes WHERE id=$1 FOR UPDATE`, idCliente)
 	err = rowCliente.Scan(&cliente.Limite, &cliente.Saldo)
 	if err != nil {
 		return nil, errors.New("BUSCA_CLIENTE_EXCEPTION")
@@ -58,13 +41,13 @@ func InsertTransacaoSelectForUpdate(idCliente int, transacaoRequest Transacao) (
 
 	// Inserir a transação no banco de dados
 	sqlInsertTransacao := `INSERT INTO transacoes (cliente_id, valor, tipo, descricao, realizada_em) VALUES($1, $2, $3, $4, now()) RETURNING id`
-	_, err = conn.Exec(sqlInsertTransacao, idCliente, transacaoRequest.Valor, transacaoRequest.Tipo, transacaoRequest.Descricao)
+	_, err = dbPool.Exec(ctx, sqlInsertTransacao, idCliente, transacaoRequest.Valor, transacaoRequest.Tipo, transacaoRequest.Descricao)
 	if err != nil {
 		return nil, errors.New("INSERE_TRANSACAO_EXCEPTION")
 	}
 
 	// Atualizar o saldo do cliente no banco de dados
-	_, err = conn.Exec(`UPDATE clientes SET saldo=$1 WHERE id=$2`, saldoTransient, idCliente)
+	_, err = dbPool.Exec(ctx, `UPDATE clientes SET saldo=$1 WHERE id=$2`, saldoTransient, idCliente)
 	if err != nil {
 		return nil, errors.New("ATUALIZA_SALDO_EXCEPTION")
 	}
@@ -76,7 +59,7 @@ func InsertTransacaoSelectForUpdate(idCliente int, transacaoRequest Transacao) (
 	}
 
 	// Commit da transação
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 

@@ -2,17 +2,18 @@ package handlers
 
 import (
 	"api/models"
-	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 // RealizarTransacao é um handler para realizar transações
-func RealizarTransacao(w http.ResponseWriter, r *http.Request) {
+func RealizarTransacao(w http.ResponseWriter, r *http.Request, dbPool *pgxpool.Pool) {
 	// Extrair o ID do cliente a partir dos parâmetros da URL
 	idCliente, err := strconv.Atoi(chi.URLParam(r, "id"))
 	if err != nil {
@@ -44,7 +45,7 @@ func RealizarTransacao(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Realizar a transação
-	resp, err := models.InsertTransacaoSelectForUpdate(idCliente, transacaoRequest)
+	resp, err := models.InsertTransacaoSelectForUpdate(idCliente, transacaoRequest, dbPool)
 	if err != nil {
 		switch {
 		case err.Error() == "BUSCA_CLIENTE_EXCEPTION":
@@ -63,16 +64,16 @@ func RealizarTransacao(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-func BuscarExtrato(w http.ResponseWriter, r *http.Request) {
+func BuscarExtrato(w http.ResponseWriter, r *http.Request, dbPool *pgxpool.Pool) {
 	idCliente, err := strconv.Atoi(chi.URLParam(r, "id"))
 	if err != nil {
 		http.Error(w, "[id] (na URL) deve ser um número inteiro representando a identificação do cliente", http.StatusUnprocessableEntity)
 		return
 	}
-
-	resp, err := models.GetExtrato(idCliente)
+	resp, err := models.GetExtrato(idCliente, dbPool)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		// Check if the error indicates no rows were found
+		if err == pgx.ErrNoRows {
 			http.Error(w, "Cliente não encontrado", http.StatusNotFound)
 			return
 		}

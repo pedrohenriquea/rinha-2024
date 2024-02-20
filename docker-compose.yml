@@ -6,6 +6,7 @@ services:
     # publicamente acessível! Ex.: hub.docker.com
     image: teste_rinha
     hostname: api01
+    restart: unless-stopped
     environment:
       - DB_HOSTNAME=db
     
