@@ -46,7 +46,7 @@ services:
       resources:
         limits:
           cpus: "0.3"
-          memory: "150MB"
+          memory: "200MB"
 
   db:
     image: postgres:latest
@@ -67,7 +67,7 @@ services:
           # aqui declarados é de 1.5 unidades de CPU e 550MB
           # de memória. A distribuição feita aqui é apenas
           # um exemplo – distribua como quiser.
-          cpus: "0.3"
+          cpus: "0.5"
           memory: "150MB"
 
 # O uso do modo `bridge` deve ser adequado à carga que será usada no teste.
