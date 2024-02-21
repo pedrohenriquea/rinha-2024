@@ -20,7 +20,7 @@ func InsertTransacaoSelectForUpdate(idCliente int, transacaoRequest Transacao, d
 
 	// Busca os dados do cliente
 	var cliente Cliente
-	rowCliente := dbPool.QueryRow(ctx, `SELECT limite, saldo FROM clientes WHERE id=$1 FOR UPDATE`, idCliente)
+	rowCliente := tx.QueryRow(ctx, `SELECT limite, saldo FROM clientes WHERE id=$1 FOR UPDATE`, idCliente)
 	err = rowCliente.Scan(&cliente.Limite, &cliente.Saldo)
 	if err != nil {
 		return nil, errors.New("BUSCA_CLIENTE_EXCEPTION")
@@ -41,13 +41,13 @@ func InsertTransacaoSelectForUpdate(idCliente int, transacaoRequest Transacao, d
 
 	// Inserir a transação no banco de dados
 	sqlInsertTransacao := `INSERT INTO transacoes (cliente_id, valor, tipo, descricao, realizada_em) VALUES($1, $2, $3, $4, now()) RETURNING id`
-	_, err = dbPool.Exec(ctx, sqlInsertTransacao, idCliente, transacaoRequest.Valor, transacaoRequest.Tipo, transacaoRequest.Descricao)
+	_, err = tx.Exec(ctx, sqlInsertTransacao, idCliente, transacaoRequest.Valor, transacaoRequest.Tipo, transacaoRequest.Descricao)
 	if err != nil {
 		return nil, errors.New("INSERE_TRANSACAO_EXCEPTION")
 	}
 
 	// Atualizar o saldo do cliente no banco de dados
-	_, err = dbPool.Exec(ctx, `UPDATE clientes SET saldo=$1 WHERE id=$2`, saldoTransient, idCliente)
+	_, err = tx.Exec(ctx, `UPDATE clientes SET saldo=$1 WHERE id=$2`, saldoTransient, idCliente)
 	if err != nil {
 		return nil, errors.New("ATUALIZA_SALDO_EXCEPTION")
 	}

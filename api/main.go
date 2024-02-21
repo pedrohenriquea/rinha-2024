@@ -18,7 +18,7 @@ func main() {
 		panic(err)
 	}
 
-	databaseUrl := "postgres://admin:123@db:5432/rinha"
+	databaseUrl := "postgres://admin:123@localhost:5432/rinha"
 	dbPool, err := pgxpool.Connect(context.Background(), databaseUrl)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "unable to connect to database: %v\n", err)

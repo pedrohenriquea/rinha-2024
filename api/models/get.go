@@ -8,55 +8,31 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
-
 func GetExtrato(idCliente int, dbPool *pgxpool.Pool) (extrato Extrato, err error) {
- 
-    // Obter informações do cliente
-    cliente, err := GetClienteByID(idCliente, dbPool)
-    if err != nil {
-        return
-    }
- 
-    // Obter saldo
-    saldo, err := GetSaldo(idCliente, dbPool)
-    if err != nil {
-        return
-    }
- 
-    // Obter últimas transações do extrato
-    ultimasTransacoes, err := GetUltimasTransacoesExtrato(idCliente, dbPool)
-    if err != nil {
-        return
-    }
- 
-    // Criar extrato
-    extrato = Extrato{
-        Saldo: SaldoExtrato{
-            Total:       saldo,
-            DataExtrato: time.Now(),
-            Limite:      cliente.Limite,
-        },
-        UltimasTransacoes: ultimasTransacoes,
-    }
- 
-    return extrato, nil
-}
 
-func GetSaldo(idCliente int, dbPool *pgxpool.Pool) (saldo int64, err error) {
-	ctx := context.Background()
-
-	// Preparar a consulta
-	row := dbPool.QueryRow(ctx, `SELECT COALESCE(SUM(valor), 0) FROM transacoes WHERE cliente_id=$1`, idCliente)
+	// Obter informações do cliente
+	cliente, err := GetClienteByID(idCliente, dbPool)
 	if err != nil {
-		return saldo, err
-	}
-	// Obter os resultados
-	err = row.Scan(&saldo)
-	if err != nil {
-		return saldo, err
+		return
 	}
 
-	return saldo, nil
+	// Obter últimas transações do extrato
+	ultimasTransacoes, err := GetUltimasTransacoesExtrato(idCliente, dbPool)
+	if err != nil {
+		return
+	}
+
+	// Criar extrato
+	extrato = Extrato{
+		Saldo: SaldoExtrato{
+			Total:       cliente.Saldo,
+			DataExtrato: time.Now(),
+			Limite:      cliente.Limite,
+		},
+		UltimasTransacoes: ultimasTransacoes,
+	}
+
+	return extrato, nil
 }
 
 func GetClienteByID(idCliente int, dbPool *pgxpool.Pool) (cliente Cliente, err error) {

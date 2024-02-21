@@ -29,7 +29,7 @@ func RealizarTransacao(w http.ResponseWriter, r *http.Request, dbPool *pgxpool.P
 	}
 
 	// Validar request
-	if transacaoRequest.Valor <= 0 {
+	if transacaoRequest.Valor < 0 {
 		http.Error(w, "'valor' deve ser um número inteiro positivo que representa centavos", http.StatusUnprocessableEntity)
 		return
 	}
