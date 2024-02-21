@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
+
 func GetExtrato(idCliente int, dbPool *pgxpool.Pool) (extrato Extrato, err error) {
  
     // Obter informações do cliente
