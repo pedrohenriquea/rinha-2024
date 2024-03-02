@@ -34,6 +34,14 @@ type TransacaoExtrato struct {
 	RealizadaEm time.Time `json:"realizada_em"`
 }
 
+type TransacaoExtratoRoutine struct {
+	Valor       int64         `json:"valor"`
+	Tipo        string        `json:"tipo"`
+	Descricao   string        `json:"descricao"`
+	RealizadaEm time.Time     `json:"realizada_em"`
+	Saldo       *SaldoExtrato `json:"saldo"`
+}
+
 type Extrato struct {
 	Saldo             SaldoExtrato       `json:"saldo"`
 	UltimasTransacoes []TransacaoExtrato `json:"ultimas_transacoes"`

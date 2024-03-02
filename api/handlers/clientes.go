@@ -66,7 +66,7 @@ func BuscarExtrato(c *fiber.Ctx, dbPool *pgxpool.Pool) {
 		c.Status(fiber.StatusUnprocessableEntity).SendString("[id] (na URL) deve ser um número inteiro representando a identificação do cliente")
 		return
 	}
-	resp, err := service.GetExtrato(idCliente, dbPool)
+	resp, err := service.GetExtratoGoRoutine(idCliente, dbPool)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			c.Status(fiber.StatusNotFound).SendString("Cliente não encontrado")
