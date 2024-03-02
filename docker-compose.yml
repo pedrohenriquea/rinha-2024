@@ -4,7 +4,7 @@ services:
   api01: &api
     # Lembre-se de que seu serviço HTTP deve estar hospedado num repositório
     # publicamente acessível! Ex.: hub.docker.com
-    image: teste_rinha
+    image: pedrohenriquea/rinha2024:1.15
     hostname: api01
     restart: unless-stopped
     environment:
@@ -16,12 +16,13 @@ services:
     ports:
       - "8081:8080"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     deploy:
       resources:
         limits:
           cpus: "0.3"
-          memory: "100MB"
+          memory: "140MB"
 
   api02:
     # Essa sintaxe reusa o que foi declarado em 'api01'.
@@ -45,8 +46,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.3"
-          memory: "200MB"
+          cpus: "0.2"
+          memory: "70MB"
 
   db:
     image: postgres:latest
@@ -60,6 +61,13 @@ services:
       - "5432:5432"
     volumes:
       - ./script.sql:/docker-entrypoint-initdb.d/script.sql
+      - ./postgresql.conf:/etc/postgresql/postgresql.conf
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U admin -d rinha"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     deploy:
       resources:
         limits:
@@ -67,8 +75,8 @@ services:
           # aqui declarados é de 1.5 unidades de CPU e 550MB
           # de memória. A distribuição feita aqui é apenas
           # um exemplo – distribua como quiser.
-          cpus: "0.5"
-          memory: "150MB"
+          cpus: "0.7"
+          memory: "200MB"
 
 # O uso do modo `bridge` deve ser adequado à carga que será usada no teste.
 # A edição anterior se beneficiou do modo host pois o volume de requisições

@@ -5,34 +5,52 @@ import (
 	"api/handlers"
 	"context"
 	"fmt"
-	"net/http"
-	"os"
+	"log"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 func main() {
 	err := configs.Load()
 	if err != nil {
-		panic(err)
+		log.Fatalf("Erro ao carregar as configurações: %v", err)
 	}
 
-	databaseUrl := "postgres://admin:123@db:5432/rinha"
-	dbPool, err := pgxpool.Connect(context.Background(), databaseUrl)
+	dbPool, err := connectToDatabase(configs.GetDB())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "unable to connect to database: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Erro ao conectar ao banco de dados: %v", err)
 	}
 	defer dbPool.Close()
 
-	r := chi.NewRouter()
-	r.Post("/clientes/{id}/transacoes", func(w http.ResponseWriter, r *http.Request) {
-		handlers.RealizarTransacao(w, r, dbPool)
-	})
-	r.Get("/clientes/{id}/extrato", func(w http.ResponseWriter, r *http.Request) {
-		handlers.BuscarExtrato(w, r, dbPool)
+	app := setupApp(dbPool)
+
+	serverPort := configs.GetServerPort()
+	log.Printf("Servidor HTTP iniciado na porta %s...\n", serverPort)
+	if err := app.Listen(":" + serverPort); err != nil {
+		log.Fatalf("Erro ao iniciar o servidor: %v", err)
+	}
+}
+
+func connectToDatabase(conf configs.DBConfig) (*pgxpool.Pool, error) {
+	connectionString := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		conf.Host, conf.Port, conf.User, conf.Pass, conf.Database)
+
+	return pgxpool.Connect(context.Background(), connectionString)
+}
+
+func setupApp(dbPool *pgxpool.Pool) *fiber.App {
+	app := fiber.New()
+
+	app.Post("/clientes/:id/transacoes", func(c *fiber.Ctx) error {
+		handlers.RealizarTransacao(c, dbPool)
+		return nil
 	})
 
-	http.ListenAndServe(fmt.Sprintf(":%s", configs.GetServerPort()), r)
+	app.Get("/clientes/:id/extrato", func(c *fiber.Ctx) error {
+		handlers.BuscarExtrato(c, dbPool)
+		return nil
+	})
+
+	return app
 }

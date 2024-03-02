@@ -2,93 +2,84 @@ package handlers
 
 import (
 	"api/models"
-	"encoding/json"
+	"api/service"
 	"log"
-	"net/http"
 	"strconv"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
-// RealizarTransacao é um handler para realizar transações
-func RealizarTransacao(w http.ResponseWriter, r *http.Request, dbPool *pgxpool.Pool) {
+func RealizarTransacao(c *fiber.Ctx, dbPool *pgxpool.Pool) {
 	// Extrair o ID do cliente a partir dos parâmetros da URL
-	idCliente, err := strconv.Atoi(chi.URLParam(r, "id"))
+	idCliente, err := strconv.Atoi(c.Params("id"))
 	if err != nil {
-		http.Error(w, "[id] (na URL) deve ser um número inteiro representando a identificação do cliente", http.StatusBadRequest)
+		c.Status(fiber.StatusBadRequest).SendString("[id] (na URL) deve ser um número inteiro representando a identificação do cliente")
 		return
 	}
 
 	// Decodificar o corpo da requisição em uma estrutura de Transacao
 	var transacaoRequest models.Transacao
-	if err := json.NewDecoder(r.Body).Decode(&transacaoRequest); err != nil {
-		http.Error(w, "Erro ao decodificar o corpo da requisição", http.StatusUnprocessableEntity)
+	if err := c.BodyParser(&transacaoRequest); err != nil {
+		c.Status(fiber.StatusUnprocessableEntity).SendString("Erro ao decodificar o corpo da requisição")
 		return
 	}
 
 	// Validar request
 	if transacaoRequest.Valor < 0 {
-		http.Error(w, "'valor' deve ser um número inteiro positivo que representa centavos", http.StatusUnprocessableEntity)
+		c.Status(fiber.StatusUnprocessableEntity).SendString("'valor' deve ser um número inteiro positivo que representa centavos")
 		return
 	}
 
 	if transacaoRequest.Tipo != "c" && transacaoRequest.Tipo != "d" {
-		http.Error(w, "'tipo' deve ser apenas 'c' para crédito ou 'd' para débito.", http.StatusUnprocessableEntity)
+		c.Status(fiber.StatusUnprocessableEntity).SendString("'tipo' deve ser apenas 'c' para crédito ou 'd' para débito.")
 		return
 	}
 
 	if len(transacaoRequest.Descricao) < 1 || len(transacaoRequest.Descricao) > 10 {
-		http.Error(w, "'descricao' deve ser uma string de 1 a 10 caracteres.", http.StatusUnprocessableEntity)
+		c.Status(fiber.StatusUnprocessableEntity).SendString("'descricao' deve ser uma string de 1 a 10 caracteres.")
 		return
 	}
 
 	// Realizar a transação
-	resp, err := models.InsertTransacaoSelectForUpdate(idCliente, transacaoRequest, dbPool)
+	resp, err := service.InsertTransacao(idCliente, transacaoRequest, dbPool)
 	if err != nil {
 		switch {
 		case err.Error() == "BUSCA_CLIENTE_EXCEPTION":
-			http.Error(w, "Cliente não encontrado", http.StatusNotFound)
+			c.Status(fiber.StatusNotFound).SendString("Cliente não encontrado")
 		case err.Error() == "LIMITE_EXCEPTION":
-			http.Error(w, "Transação de débito ultrapassa o limite disponível do cliente", http.StatusUnprocessableEntity)
+			c.Status(fiber.StatusUnprocessableEntity).SendString("Transação de débito ultrapassa o limite disponível do cliente")
 		default:
 			log.Printf("Erro inesperado: %v", err)
-			http.Error(w, "Erro inesperado", http.StatusInternalServerError)
+			c.Status(fiber.StatusInternalServerError).SendString("Erro inesperado")
 		}
 		return
 	}
 
-	// Codificar a resposta como JSON e enviá-la
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	c.Status(fiber.StatusOK).JSON(resp)
 }
 
-func BuscarExtrato(w http.ResponseWriter, r *http.Request, dbPool *pgxpool.Pool) {
-	idCliente, err := strconv.Atoi(chi.URLParam(r, "id"))
+func BuscarExtrato(c *fiber.Ctx, dbPool *pgxpool.Pool) {
+	idCliente, err := strconv.Atoi(c.Params("id"))
 	if err != nil {
-		http.Error(w, "[id] (na URL) deve ser um número inteiro representando a identificação do cliente", http.StatusUnprocessableEntity)
+		c.Status(fiber.StatusUnprocessableEntity).SendString("[id] (na URL) deve ser um número inteiro representando a identificação do cliente")
 		return
 	}
-	resp, err := models.GetExtrato(idCliente, dbPool)
+	resp, err := service.GetExtrato(idCliente, dbPool)
 	if err != nil {
-		// Check if the error indicates no rows were found
 		if err == pgx.ErrNoRows {
-			http.Error(w, "Cliente não encontrado", http.StatusNotFound)
+			c.Status(fiber.StatusNotFound).SendString("Cliente não encontrado")
 			return
 		}
-		http.Error(w, "Erro interno do servidor", http.StatusInternalServerError)
+		if err.Error() == "BUSCA_CLIENTE_EXCEPTION" {
+			c.Status(fiber.StatusNotFound).SendString("Cliente não encontrado")
+			return
+		}
+		c.Status(fiber.StatusInternalServerError).SendString("Erro inesperado")
 		log.Printf("Erro ao buscar extrato: %v", err)
 		return
 	}
 
-	// Configurar cabeçalho de resposta
-	w.Header().Set("Content-Type", "application/json")
-
-	// Escrever resposta no corpo da resposta
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Erro ao codificar resposta", http.StatusInternalServerError)
-		log.Printf("Erro ao codificar resposta JSON: %v", err)
-		return
-	}
+	c.Status(fiber.StatusOK).JSON(resp)
 }
