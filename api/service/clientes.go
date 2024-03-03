@@ -4,11 +4,8 @@ import (
 	"api/models"
 	"context"
 	"errors"
-	"fmt"
-	"log"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -34,7 +31,8 @@ func InsertTransacao(idCliente int, transacaoRequest models.Transacao, dbPool *p
 
 	// Busca os dados do cliente
 	var cliente models.Cliente
-	if err := tx.QueryRow(ctx, `SELECT limite, saldo FROM cliente_transacao WHERE id=$1 and id_pai is null FOR UPDATE`, idCliente).Scan(&cliente.Limite, &cliente.Saldo); err != nil {
+	var ultimasTransacoes []models.TransacaoExtrato
+	if err := tx.QueryRow(ctx, `SELECT limite, saldo, ultimas_transacoes FROM cliente WHERE id=$1 FOR UPDATE`, idCliente).Scan(&cliente.Limite, &cliente.Saldo, &ultimasTransacoes); err != nil {
 		return nil, errors.New("BUSCA_CLIENTE_EXCEPTION")
 	}
 
@@ -48,14 +46,17 @@ func InsertTransacao(idCliente int, transacaoRequest models.Transacao, dbPool *p
 		cliente.Saldo += transacaoRequest.Valor
 	}
 
-	// Inserir a transação no banco de dados
-	var transacaoID int
-	if err := tx.QueryRow(ctx, `INSERT INTO cliente_transacao (id_pai, valor, tipo, descricao, realizada_em) VALUES($1, $2, $3, $4, now()) RETURNING id`, idCliente, transacaoRequest.Valor, transacaoRequest.Tipo, transacaoRequest.Descricao).Scan(&transacaoID); err != nil {
-		return nil, errors.New("INSERE_TRANSACAO_EXCEPTION")
+	novaTransacao := models.TransacaoExtrato{
+		Valor:       transacaoRequest.Valor,
+		Tipo:        transacaoRequest.Tipo,
+		Descricao:   transacaoRequest.Descricao,
+		RealizadaEm: time.Now(),
 	}
 
+	ultimasTransacoes = adicionarNovaTransacao(ultimasTransacoes, novaTransacao)
+
 	// Atualizar o saldo do cliente no banco de dados
-	if _, err := tx.Exec(ctx, `UPDATE cliente_transacao SET saldo=$1 WHERE id=$2`, cliente.Saldo, idCliente); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE cliente SET saldo=$1, ultimas_transacoes=$2 WHERE id=$3`, cliente.Saldo, ultimasTransacoes, idCliente); err != nil {
 		return nil, errors.New("ATUALIZA_SALDO_EXCEPTION")
 	}
 
@@ -68,341 +69,39 @@ func InsertTransacao(idCliente int, transacaoRequest models.Transacao, dbPool *p
 	return resp, nil
 }
 
+func adicionarNovaTransacao(ultimasTransacoes []models.TransacaoExtrato, novaTransacao models.TransacaoExtrato) []models.TransacaoExtrato {
+	// Adicionando o novo registro no início da lista
+	ultimasTransacoes = append([]models.TransacaoExtrato{novaTransacao}, ultimasTransacoes...)
+
+	// Garantindo que a lista tenha no máximo 10 registros
+	if len(ultimasTransacoes) > 10 {
+		ultimasTransacoes = ultimasTransacoes[:10]
+	}
+
+	// Ordenando a lista
+	sort.Slice(ultimasTransacoes, func(i, j int) bool {
+		return ultimasTransacoes[i].Valor > ultimasTransacoes[j].Valor
+	})
+
+	return ultimasTransacoes
+}
+
 func GetExtrato(idCliente int, dbPool *pgxpool.Pool) (extrato models.Extrato, err error) {
 
-	query := `
-	SELECT limite, saldo, id_pai, valor, tipo, descricao, realizada_em
-	FROM cliente_transacao
-	WHERE id = $1 or id_pai = $1
-	ORDER BY realizada_em DESC
-	LIMIT 11 OFFSET 0
-	`
-
-	rows, err := dbPool.Query(context.Background(), query, idCliente)
-	if err != nil {
-		return extrato, err
+	var cliente models.Cliente
+	var ultimasTransacoes []models.TransacaoExtrato
+	if err := dbPool.QueryRow(context.Background(), `SELECT limite, saldo, ultimas_transacoes FROM cliente WHERE id=$1 FOR UPDATE`, idCliente).Scan(&cliente.Limite, &cliente.Saldo, &ultimasTransacoes); err != nil {
+		return models.Extrato{}, errors.New("BUSCA_CLIENTE_EXCEPTION")
 	}
-
-	// Iterar sobre os resultados
-	var saldoExtrato models.SaldoExtrato
-	var transacoes []models.TransacaoExtrato
-	var primeiroRegistro bool = true
-
-	for rows.Next() {
-		var transacao models.ClienteTransacao
-		if err := rows.Scan(&transacao.Limite, &transacao.Saldo, &transacao.IdPai, &transacao.Valor, &transacao.Tipo, &transacao.Descricao, &transacao.RealizadaEm); err != nil {
-			log.Println(err)
-			continue
-		}
-
-		if primeiroRegistro && transacao.IdPai.Valid {
-			return models.Extrato{}, errors.New("BUSCA_CLIENTE_EXCEPTION")
-		}
-
-		primeiroRegistro = false
-
-		if !transacao.IdPai.Valid {
-			saldoExtrato = models.SaldoExtrato{
-				Total:       transacao.Saldo.Int64,
-				DataExtrato: time.Now(),
-				Limite:      transacao.Limite.Int64,
-			}
-		} else {
-			transExtrato := models.TransacaoExtrato{
-				Valor:       transacao.Valor.Int64,
-				Tipo:        transacao.Tipo.String,
-				Descricao:   transacao.Descricao.String,
-				RealizadaEm: transacao.RealizadaEm,
-			}
-			transacoes = append(transacoes, transExtrato)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		log.Println(err)
-	}
-
 	// Criar extrato
 	extrato = models.Extrato{
-		Saldo:             saldoExtrato,
-		UltimasTransacoes: transacoes,
+		Saldo: models.SaldoExtrato{
+			Total:       cliente.Saldo,
+			DataExtrato: time.Now(),
+			Limite:      cliente.Limite,
+		},
+		UltimasTransacoes: ultimasTransacoes,
 	}
 
 	return extrato, nil
-}
-
-func countClienteById(idCliente int, dbPool *pgxpool.Pool) (count int64, err error) {
-	query := `
-        SELECT count(*)
-        FROM cliente_transacao
-        WHERE id = $1 and id_pai is null
-    `
-	err = dbPool.QueryRow(context.Background(), query, idCliente).Scan(&count)
-	if err != nil {
-		// Se ocorrer um erro durante a execução da consulta, retorne-o imediatamente
-		return 0, err
-	}
-
-	// Se a execução da consulta for bem-sucedida, retorne o resultado
-	return count, nil
-}
-
-func GetExtratoGoRoutine1(idCliente int, dbPool *pgxpool.Pool) (extrato models.Extrato, err error) {
-	extratoCanal := make(chan []models.ClienteTransacao)
-	errCh := make(chan error)
-
-	numCliente, err := countClienteById(idCliente, dbPool)
-	if err != nil {
-		return models.Extrato{}, err
-	}
-
-	if numCliente == 0 {
-		return models.Extrato{}, errors.New("BUSCA_CLIENTE_EXCEPTION")
-	}
-
-	// Consulta SQL
-	query := `
-        SELECT limite, saldo, id_pai, valor, tipo, descricao, realizada_em
-        FROM cliente_transacao
-        WHERE id = $1 OR id_pai = $1
-        ORDER BY realizada_em DESC
-    `
-
-	processBatch := func(offset int, batchSize int) {
-		// Se ocorrer um erro dentro desta goroutine,
-		// envie-o para o canal de erro.
-		defer func() {
-			if r := recover(); r != nil {
-				errCh <- fmt.Errorf("erro na goroutine: %v", r)
-			}
-		}()
-
-		rows, err := dbPool.Query(context.Background(), query+" LIMIT $2 OFFSET $3", idCliente, batchSize, offset)
-		if err != nil {
-			errCh <- err
-			return
-		}
-		defer rows.Close()
-
-		var clientesTransacoes []models.ClienteTransacao
-		for rows.Next() {
-			var transacao models.ClienteTransacao
-			if err := rows.Scan(&transacao.Limite, &transacao.Saldo, &transacao.IdPai, &transacao.Valor, &transacao.Tipo, &transacao.Descricao, &transacao.RealizadaEm); err != nil {
-				errCh <- err
-				return
-			}
-
-			clientesTransacoes = append(clientesTransacoes, transacao)
-
-		}
-
-		if err := rows.Err(); err != nil {
-			errCh <- err
-			return
-		}
-
-		// Enviar transações processadas para o canal
-		extratoCanal <- clientesTransacoes
-
-	}
-
-	// Inicie as goroutines para processar os lotes
-	var wg sync.WaitGroup
-	for i := 0; i <= 3; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			switch i {
-			case 0:
-				processBatch(0, 3)
-			case 1:
-				processBatch(3, 3)
-			case 2:
-				processBatch(6, 5)
-			}
-
-		}(i)
-	}
-
-	// Aguarde o término de todas as goroutines
-	go func() {
-		wg.Wait()
-		close(extratoCanal)
-	}()
-
-	// Receba as transações processadas dos canais e agregue-as
-	for trans := range extratoCanal {
-		for i := 0; i < len(trans); i++ {
-			if trans[i].IsSaldoExtrato() {
-				extrato.Saldo = models.SaldoExtrato{
-					Total:       trans[i].Saldo.Int64,
-					DataExtrato: time.Now(),
-					Limite:      trans[i].Limite.Int64,
-				}
-			} else {
-				transacaoExtrato := models.TransacaoExtrato{
-					Valor:       trans[i].Valor.Int64,
-					Tipo:        trans[i].Tipo.String,
-					Descricao:   trans[i].Descricao.String,
-					RealizadaEm: trans[i].RealizadaEm,
-				}
-
-				extrato.UltimasTransacoes = append(extrato.UltimasTransacoes, transacaoExtrato)
-			}
-		}
-	}
-
-	models.OrdenarPorRealizadaEmDesc(extrato.UltimasTransacoes)
-
-	// Use select para lidar com múltiplos canais
-	for {
-		select {
-		case err := <-errCh:
-			// Se houver erro, retorne imediatamente
-			fmt.Printf("Erro: %v\n", err)
-			return models.Extrato{}, err
-		default:
-			return extrato, nil
-		}
-	}
-}
-
-func GetExtratoGoRoutine(idCliente int, dbPool *pgxpool.Pool) (extrato models.Extrato, err error) {
-
-	// Canal para enviar transações processadas
-	transacoesCh := make(chan []models.TransacaoExtratoRoutine)
-
-	// Canal para sinalizar quando todas as goroutines terminaram
-	doneCh := make(chan struct{})
-	defer close(doneCh)
-
-	// Consulta SQL
-	query := `
-        SELECT limite, saldo, id_pai, valor, tipo, descricao, realizada_em
-        FROM cliente_transacao
-        WHERE id = $1 OR id_pai = $1
-        ORDER BY realizada_em DESC
-    `
-
-	// Função para processar um lote de resultados
-	processBatch := func(offset int, batchSize int) {
-
-		rows, err := dbPool.Query(context.Background(), query+" LIMIT $2 OFFSET $3", idCliente, batchSize, offset)
-
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		defer rows.Close()
-
-		var transacoes []models.TransacaoExtratoRoutine
-
-		for rows.Next() {
-			var transacao models.ClienteTransacao
-			if err := rows.Scan(&transacao.Limite, &transacao.Saldo, &transacao.IdPai, &transacao.Valor, &transacao.Tipo, &transacao.Descricao, &transacao.RealizadaEm); err != nil {
-				log.Println(err)
-				continue
-			}
-
-			// Processar transação...
-			if !transacao.IdPai.Valid {
-				transSaldo := models.TransacaoExtratoRoutine{
-					Saldo: &models.SaldoExtrato{
-						Total:       transacao.Saldo.Int64,
-						DataExtrato: time.Now(),
-						Limite:      transacao.Limite.Int64,
-					},
-					RealizadaEm: transacao.RealizadaEm,
-				}
-				transacoes = append(transacoes, transSaldo)
-			} else {
-				transExtrato := models.TransacaoExtratoRoutine{
-					Valor:       transacao.Valor.Int64,
-					Tipo:        transacao.Tipo.String,
-					Descricao:   transacao.Descricao.String,
-					RealizadaEm: transacao.RealizadaEm,
-				}
-				transacoes = append(transacoes, transExtrato)
-			}
-
-		}
-		if err := rows.Err(); err != nil {
-			log.Println(err)
-		}
-
-		// Enviar transações processadas para o canal
-		transacoesCh <- transacoes
-	}
-
-	// Inicie as goroutines para processar os lotes
-	var wg sync.WaitGroup
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			switch i {
-			case 0:
-				processBatch(0, 6)
-			case 1:
-				processBatch(6, 5)
-			}
-
-		}(i)
-	}
-
-	// Aguarde o término de todas as goroutines
-	go func() {
-		wg.Wait()
-		close(transacoesCh)
-	}()
-
-	// Receba as transações processadas dos canais e agregue-as
-	var transacoes []models.TransacaoExtratoRoutine
-	for trans := range transacoesCh {
-		transacoes = append(transacoes, trans...)
-	}
-
-	OrdenarPorRealizadaEm(transacoes)
-	if len(transacoes) == 0 {
-		return models.Extrato{}, errors.New("BUSCA_CLIENTE_EXCEPTION")
-	}
-
-	var saldo models.SaldoExtrato
-	if transacoes[0].Saldo != nil {
-		saldo = *transacoes[0].Saldo
-	} else {
-		return models.Extrato{}, errors.New("BUSCA_CLIENTE_EXCEPTION")
-	}
-
-	extrato = models.Extrato{
-		Saldo:             saldo,
-		UltimasTransacoes: ConverterParaTransacaoExtrato(transacoes),
-	}
-
-	return extrato, nil
-}
-
-type ByRealizadaEm []models.TransacaoExtratoRoutine
-
-func (a ByRealizadaEm) Len() int           { return len(a) }
-func (a ByRealizadaEm) Less(i, j int) bool { return a[i].RealizadaEm.After(a[j].RealizadaEm) }
-func (a ByRealizadaEm) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-
-func OrdenarPorRealizadaEm(transacoes []models.TransacaoExtratoRoutine) {
-	sort.Sort(ByRealizadaEm(transacoes))
-}
-
-func ConverterParaTransacaoExtrato(transacoes []models.TransacaoExtratoRoutine) []models.TransacaoExtrato {
-	var transacoesExtrato []models.TransacaoExtrato
-	for _, transacao := range transacoes {
-		if transacao.Saldo == nil {
-			transacaoExtrato := models.TransacaoExtrato{
-				Valor:       transacao.Valor,
-				Tipo:        transacao.Tipo,
-				Descricao:   transacao.Descricao,
-				RealizadaEm: transacao.RealizadaEm,
-			}
-			transacoesExtrato = append(transacoesExtrato, transacaoExtrato)
-		}
-	}
-	return transacoesExtrato
 }
