@@ -4,6 +4,7 @@ import (
 	"api/models"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -127,6 +128,142 @@ func GetExtrato(idCliente int, dbPool *pgxpool.Pool) (extrato models.Extrato, er
 	}
 
 	return extrato, nil
+}
+
+func countClienteById(idCliente int, dbPool *pgxpool.Pool) (count int64, err error) {
+	query := `
+        SELECT count(*)
+        FROM cliente_transacao
+        WHERE id = $1 and id_pai is null
+    `
+	err = dbPool.QueryRow(context.Background(), query, idCliente).Scan(&count)
+	if err != nil {
+		// Se ocorrer um erro durante a execução da consulta, retorne-o imediatamente
+		return 0, err
+	}
+
+	// Se a execução da consulta for bem-sucedida, retorne o resultado
+	return count, nil
+}
+
+func GetExtratoGoRoutine1(idCliente int, dbPool *pgxpool.Pool) (extrato models.Extrato, err error) {
+	extratoCanal := make(chan []models.ClienteTransacao)
+	errCh := make(chan error)
+
+	numCliente, err := countClienteById(idCliente, dbPool)
+	if err != nil {
+		return models.Extrato{}, err
+	}
+
+	if numCliente == 0 {
+		return models.Extrato{}, errors.New("BUSCA_CLIENTE_EXCEPTION")
+	}
+
+	// Consulta SQL
+	query := `
+        SELECT limite, saldo, id_pai, valor, tipo, descricao, realizada_em
+        FROM cliente_transacao
+        WHERE id = $1 OR id_pai = $1
+        ORDER BY realizada_em DESC
+    `
+
+	processBatch := func(offset int, batchSize int) {
+		// Se ocorrer um erro dentro desta goroutine,
+		// envie-o para o canal de erro.
+		defer func() {
+			if r := recover(); r != nil {
+				errCh <- fmt.Errorf("erro na goroutine: %v", r)
+			}
+		}()
+
+		rows, err := dbPool.Query(context.Background(), query+" LIMIT $2 OFFSET $3", idCliente, batchSize, offset)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		defer rows.Close()
+
+		var clientesTransacoes []models.ClienteTransacao
+		for rows.Next() {
+			var transacao models.ClienteTransacao
+			if err := rows.Scan(&transacao.Limite, &transacao.Saldo, &transacao.IdPai, &transacao.Valor, &transacao.Tipo, &transacao.Descricao, &transacao.RealizadaEm); err != nil {
+				errCh <- err
+				return
+			}
+
+			clientesTransacoes = append(clientesTransacoes, transacao)
+
+		}
+
+		if err := rows.Err(); err != nil {
+			errCh <- err
+			return
+		}
+
+		// Enviar transações processadas para o canal
+		extratoCanal <- clientesTransacoes
+
+	}
+
+	// Inicie as goroutines para processar os lotes
+	var wg sync.WaitGroup
+	for i := 0; i <= 3; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			switch i {
+			case 0:
+				processBatch(0, 3)
+			case 1:
+				processBatch(3, 3)
+			case 2:
+				processBatch(6, 5)
+			}
+
+		}(i)
+	}
+
+	// Aguarde o término de todas as goroutines
+	go func() {
+		wg.Wait()
+		close(extratoCanal)
+	}()
+
+	// Receba as transações processadas dos canais e agregue-as
+	for trans := range extratoCanal {
+		for i := 0; i < len(trans); i++ {
+			if trans[i].IsSaldoExtrato() {
+				extrato.Saldo = models.SaldoExtrato{
+					Total:       trans[i].Saldo.Int64,
+					DataExtrato: time.Now(),
+					Limite:      trans[i].Limite.Int64,
+				}
+			} else {
+				transacaoExtrato := models.TransacaoExtrato{
+					Valor:       trans[i].Valor.Int64,
+					Tipo:        trans[i].Tipo.String,
+					Descricao:   trans[i].Descricao.String,
+					RealizadaEm: trans[i].RealizadaEm,
+				}
+
+				extrato.UltimasTransacoes = append(extrato.UltimasTransacoes, transacaoExtrato)
+			}
+		}
+	}
+
+	models.OrdenarPorRealizadaEmDesc(extrato.UltimasTransacoes)
+
+	// Use select para lidar com múltiplos canais
+	for {
+		select {
+		case err := <-errCh:
+			// Se houver erro, retorne imediatamente
+			fmt.Printf("Erro: %v\n", err)
+			return models.Extrato{}, err
+		default:
+			return extrato, nil
+		}
+	}
 }
 
 func GetExtratoGoRoutine(idCliente int, dbPool *pgxpool.Pool) (extrato models.Extrato, err error) {

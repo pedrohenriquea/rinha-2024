@@ -2,6 +2,7 @@ package models
 
 import (
 	"database/sql"
+	"sort"
 	"time"
 )
 
@@ -14,6 +15,10 @@ type ClienteTransacao struct {
 	Tipo        sql.NullString `db:"tipo"`
 	Descricao   sql.NullString `db:"descricao"`
 	RealizadaEm time.Time      `db:"realizada_em"`
+}
+
+func (item ClienteTransacao) IsSaldoExtrato() bool {
+	return !item.IdPai.Valid
 }
 
 type Transacao struct {
@@ -51,4 +56,27 @@ type SaldoExtrato struct {
 	Total       int64     `json:"total"`
 	DataExtrato time.Time `json:"data_extrato"`
 	Limite      int64     `json:"limite"`
+}
+
+type ItemExtratoCanal struct {
+	SaldoExtrato     SaldoExtrato
+	TransacaoExtrato TransacaoExtrato
+	IdPai            int64
+	RealizadaEm      time.Time
+}
+
+func (item ItemExtratoCanal) IsSaldoExtrato() bool {
+	// Verifica se o campo SaldoExtrato está preenchido
+	return item.SaldoExtrato != SaldoExtrato{}
+}
+
+type ByRealizadaEmDesc []TransacaoExtrato
+
+func (a ByRealizadaEmDesc) Len() int           { return len(a) }
+func (a ByRealizadaEmDesc) Less(i, j int) bool { return a[i].RealizadaEm.After(a[j].RealizadaEm) }
+func (a ByRealizadaEmDesc) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+
+// Função para ordenar a lista de ItemExtratoCanal por RealizadaEm em ordem decrescente
+func OrdenarPorRealizadaEmDesc(lista []TransacaoExtrato) {
+	sort.Sort(ByRealizadaEmDesc(lista))
 }
