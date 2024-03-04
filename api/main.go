@@ -36,7 +36,15 @@ func connectToDatabase(conf configs.DBConfig) (*pgxpool.Pool, error) {
 	connectionString := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		conf.Host, conf.Port, conf.User, conf.Pass, conf.Database)
 
-	return pgxpool.Connect(context.Background(), connectionString)
+	poolConfig, err := pgxpool.ParseConfig(connectionString)
+	if err != nil {
+		return nil, err
+	}
+
+	// Definindo o tamanho do pool de conexões
+	poolConfig.MaxConns = 300
+
+	return pgxpool.ConnectConfig(context.Background(), poolConfig)
 }
 
 func setupApp(dbPool *pgxpool.Pool) *fiber.App {

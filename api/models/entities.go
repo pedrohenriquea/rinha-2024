@@ -15,6 +15,11 @@ type Cliente struct {
 	Saldo  int64 `json:"saldo"`
 }
 
+type ClienteTransacoes struct {
+	Cliente           Cliente
+	UltimasTransacoes []TransacaoExtrato
+}
+
 type TransacaoExtrato struct {
 	Valor       int64     `json:"valor"`
 	Tipo        string    `json:"tipo"`

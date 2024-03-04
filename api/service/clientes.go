@@ -8,8 +8,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 )
+
+func BuscarCliente(idCliente int, tx pgx.Tx) (clienteTransacoes models.ClienteTransacoes, err error) {
+	ctx := context.Background()
+
+	if _, err := tx.Prepare(ctx, "busca-cliente", "SELECT limite, saldo, ultimas_transacoes FROM cliente WHERE id=$1 FOR UPDATE"); err != nil {
+		panic(err)
+	}
+
+	// Busca os dados do cliente
+	if err := tx.QueryRow(ctx, "busca-cliente", idCliente).Scan(&clienteTransacoes.Cliente.Limite, &clienteTransacoes.Cliente.Saldo, &clienteTransacoes.UltimasTransacoes); err != nil {
+		return models.ClienteTransacoes{}, errors.New("BUSCA_CLIENTE_EXCEPTION")
+	}
+
+	return clienteTransacoes, nil
+}
 
 func InsertTransacao(idCliente int, transacaoRequest models.Transacao, dbPool *pgxpool.Pool) (*models.Cliente, error) {
 	ctx := context.Background()
@@ -29,12 +45,17 @@ func InsertTransacao(idCliente int, transacaoRequest models.Transacao, dbPool *p
 		}
 	}()
 
-	// Busca os dados do cliente
-	var cliente models.Cliente
-	var ultimasTransacoes []models.TransacaoExtrato
-	if err := tx.QueryRow(ctx, `SELECT limite, saldo, ultimas_transacoes FROM cliente WHERE id=$1 FOR UPDATE`, idCliente).Scan(&cliente.Limite, &cliente.Saldo, &ultimasTransacoes); err != nil {
-		return nil, errors.New("BUSCA_CLIENTE_EXCEPTION")
+	if _, err := tx.Prepare(ctx, "busca-cliente", "SELECT limite, saldo, ultimas_transacoes FROM cliente WHERE id=$1 FOR UPDATE"); err != nil {
+		panic(err)
 	}
+
+	// Busca os dados do cliente
+	clienteDB, err := BuscarCliente(idCliente, tx)
+	if err != nil {
+		return nil, err
+	}
+	cliente := clienteDB.Cliente
+	ultimasTransacoes := clienteDB.UltimasTransacoes
 
 	// Verificar se a transação de débito não ultrapassa o limite disponível
 	if strings.EqualFold(transacaoRequest.Tipo, "d") {
@@ -70,6 +91,7 @@ func InsertTransacao(idCliente int, transacaoRequest models.Transacao, dbPool *p
 }
 
 func adicionarNovaTransacao(ultimasTransacoes []models.TransacaoExtrato, novaTransacao models.TransacaoExtrato) []models.TransacaoExtrato {
+
 	// Adicionando o novo registro no início da lista
 	ultimasTransacoes = append([]models.TransacaoExtrato{novaTransacao}, ultimasTransacoes...)
 
@@ -87,12 +109,31 @@ func adicionarNovaTransacao(ultimasTransacoes []models.TransacaoExtrato, novaTra
 }
 
 func GetExtrato(idCliente int, dbPool *pgxpool.Pool) (extrato models.Extrato, err error) {
+	ctx := context.Background()
 
-	var cliente models.Cliente
-	var ultimasTransacoes []models.TransacaoExtrato
-	if err := dbPool.QueryRow(context.Background(), `SELECT limite, saldo, ultimas_transacoes FROM cliente WHERE id=$1 FOR UPDATE`, idCliente).Scan(&cliente.Limite, &cliente.Saldo, &ultimasTransacoes); err != nil {
-		return models.Extrato{}, errors.New("BUSCA_CLIENTE_EXCEPTION")
+	// Iniciando a transação
+	tx, err := dbPool.Begin(ctx)
+	if err != nil {
+		return models.Extrato{}, err
 	}
+	defer func() {
+		if err != nil {
+			tx.Rollback(ctx)
+			return
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return
+		}
+	}()
+
+	// Busca os dados do cliente
+	clienteDB, err := BuscarCliente(idCliente, tx)
+	if err != nil {
+		return models.Extrato{}, err
+	}
+	cliente := clienteDB.Cliente
+	ultimasTransacoes := clienteDB.UltimasTransacoes
+
 	// Criar extrato
 	extrato = models.Extrato{
 		Saldo: models.SaldoExtrato{
