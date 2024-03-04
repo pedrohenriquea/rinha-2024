@@ -18,6 +18,7 @@ type Cliente struct {
 type ClienteTransacoes struct {
 	Cliente           Cliente
 	UltimasTransacoes []TransacaoExtrato
+	Versao            int64
 }
 
 type TransacaoExtrato struct {

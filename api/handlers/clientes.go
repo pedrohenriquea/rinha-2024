@@ -43,7 +43,7 @@ func RealizarTransacao(c *fiber.Ctx, dbPool *pgxpool.Pool) {
 	}
 
 	// Realizar a transação
-	resp, err := service.InsertTransacao(idCliente, transacaoRequest, dbPool)
+	resp, err := service.InsertTransacao(idCliente, 0, transacaoRequest, dbPool)
 	if err != nil {
 		switch {
 		case err.Error() == "BUSCA_CLIENTE_EXCEPTION":
