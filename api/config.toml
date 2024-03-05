@@ -2,7 +2,7 @@
 port = "8080"
 
 [database]
-host = "db"
+host = "127.0.0.1"
 user = "admin"
 pass = "123"
 name = "rinha"

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -25,7 +26,8 @@ func main() {
 
 	app := setupApp(dbPool)
 
-	serverPort := configs.GetServerPort()
+	serverPort := os.Getenv("HTTP_PORT")
+	//serverPort := configs.GetServerPort()
 	log.Printf("Servidor HTTP iniciado na porta %s...\n", serverPort)
 	if err := app.Listen(":" + serverPort); err != nil {
 		log.Fatalf("Erro ao iniciar o servidor: %v", err)
