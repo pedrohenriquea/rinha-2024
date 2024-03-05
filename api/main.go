@@ -38,18 +38,18 @@ func connectToDatabase(conf configs.DBConfig) (*pgxpool.Pool, error) {
 	connectionString := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		conf.Host, conf.Port, conf.User, conf.Pass, conf.Database)
 
-	const defaultMaxConns = int32(450)
-	const defaultMinConns = int32(120)
+	// const defaultMaxConns = int32(450)
+	// const defaultMinConns = int32(120)
 
-	dbConfig, err := pgxpool.ParseConfig(connectionString)
-	if err != nil {
-		return nil, err
-	}
+	// dbConfig, err := pgxpool.ParseConfig(connectionString)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	dbConfig.MaxConns = defaultMaxConns
-	dbConfig.MinConns = defaultMinConns
+	// dbConfig.MaxConns = defaultMaxConns
+	// dbConfig.MinConns = defaultMinConns
 
-	return pgxpool.ConnectConfig(context.Background(), dbConfig)
+	return pgxpool.Connect(context.Background(), connectionString)
 }
 
 func setupApp(dbPool *pgxpool.Pool) *fiber.App {
