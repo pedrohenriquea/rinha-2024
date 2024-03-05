@@ -23,8 +23,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.4"
-          memory: "115MB"
+          cpus: "0.3"
+          memory: "85MB"
 
   api02:
     # Essa sintaxe reusa o que foi declarado em 'api01'.
@@ -52,6 +52,28 @@ services:
         limits:
           cpus: "0.1"
           memory: "20MB"
+
+  pgbouncer:
+    image: pgbouncer/pgbouncer
+    container_name: pgbouncer
+    ports:
+      - "6432:6432" # PgBouncer port
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini
+    environment:
+      DATABASES_HOST: localhost
+      DATABASES_PORT: 5432
+      DATABASES_DBNAME: rinha
+      DATABASES_USER: admin
+      DATABASES_PASSWORD: 123
+    restart: always
+    depends_on:
+      - db
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: "60MB"
 
   db:
     image: postgres:latest
