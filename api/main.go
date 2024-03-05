@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -25,7 +26,8 @@ func main() {
 
 	app := setupApp(dbPool)
 
-	serverPort := configs.GetServerPort()
+	serverPort := os.Getenv("HTTP_PORT")
+	//serverPort := configs.GetServerPort()
 	log.Printf("Servidor HTTP iniciado na porta %s...\n", serverPort)
 	if err := app.Listen(":" + serverPort); err != nil {
 		log.Fatalf("Erro ao iniciar o servidor: %v", err)
@@ -36,15 +38,18 @@ func connectToDatabase(conf configs.DBConfig) (*pgxpool.Pool, error) {
 	connectionString := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		conf.Host, conf.Port, conf.User, conf.Pass, conf.Database)
 
-	poolConfig, err := pgxpool.ParseConfig(connectionString)
+	const defaultMaxConns = int32(450)
+	const defaultMinConns = int32(120)
+
+	dbConfig, err := pgxpool.ParseConfig(connectionString)
 	if err != nil {
 		return nil, err
 	}
 
-	// Definindo o tamanho do pool de conexões
-	poolConfig.MaxConns = 300
+	dbConfig.MaxConns = defaultMaxConns
+	dbConfig.MinConns = defaultMinConns
 
-	return pgxpool.ConnectConfig(context.Background(), poolConfig)
+	return pgxpool.ConnectConfig(context.Background(), dbConfig)
 }
 
 func setupApp(dbPool *pgxpool.Pool) *fiber.App {
