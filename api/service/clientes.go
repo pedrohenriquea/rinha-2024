@@ -56,10 +56,6 @@ func InsertTransacao(idCliente int, transacaoRequest models.Transacao, dbPool *p
 		}
 	}()
 
-	if _, err := tx.Prepare(ctx, "busca-cliente", "SELECT limite, saldo, ultimas_transacoes FROM cliente WHERE id=$1 FOR UPDATE"); err != nil {
-		panic(err)
-	}
-
 	// Busca os dados do cliente
 	clienteDB, err := BuscarClienteTx(idCliente, tx)
 	if err != nil {
