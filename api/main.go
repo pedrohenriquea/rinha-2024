@@ -38,8 +38,8 @@ func connectToDatabase(conf configs.DBConfig) (*pgxpool.Pool, error) {
 	connectionString := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		conf.Host, conf.Port, conf.User, conf.Pass, conf.Database)
 
-	const defaultMaxConns = int32(450)
-	const defaultMinConns = int32(120)
+	const defaultMaxConns = int32(225)
+	const defaultMinConns = int32(50)
 
 	dbConfig, err := pgxpool.ParseConfig(connectionString)
 	if err != nil {
