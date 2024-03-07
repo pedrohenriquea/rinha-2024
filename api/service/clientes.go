@@ -12,15 +12,26 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
-func BuscarCliente(idCliente int, tx pgx.Tx) (clienteTransacoes models.ClienteTransacoes, err error) {
+func BuscarClienteTx(idCliente int, tx pgx.Tx) (clienteTransacoes models.ClienteTransacoes, err error) {
 	ctx := context.Background()
 
-	if _, err := tx.Prepare(ctx, "busca-cliente", "SELECT limite, saldo, ultimas_transacoes FROM cliente WHERE id=$1 FOR UPDATE"); err != nil {
+	if _, err := tx.Prepare(ctx, "busca-cliente-tx", "SELECT limite, saldo, ultimas_transacoes FROM cliente WHERE id=$1 FOR UPDATE"); err != nil {
 		panic(err)
 	}
 
 	// Busca os dados do cliente
-	if err := tx.QueryRow(ctx, "busca-cliente", idCliente).Scan(&clienteTransacoes.Cliente.Limite, &clienteTransacoes.Cliente.Saldo, &clienteTransacoes.UltimasTransacoes); err != nil {
+	if err := tx.QueryRow(ctx, "busca-cliente-tx", idCliente).Scan(&clienteTransacoes.Cliente.Limite, &clienteTransacoes.Cliente.Saldo, &clienteTransacoes.UltimasTransacoes); err != nil {
+		return models.ClienteTransacoes{}, errors.New("BUSCA_CLIENTE_EXCEPTION")
+	}
+
+	return clienteTransacoes, nil
+}
+
+func BuscarCliente(idCliente int, dbPool *pgxpool.Pool) (clienteTransacoes models.ClienteTransacoes, err error) {
+	ctx := context.Background()
+
+	// Busca os dados do cliente
+	if err := dbPool.QueryRow(ctx, "SELECT limite, saldo, ultimas_transacoes FROM cliente WHERE id=$1", idCliente).Scan(&clienteTransacoes.Cliente.Limite, &clienteTransacoes.Cliente.Saldo, &clienteTransacoes.UltimasTransacoes); err != nil {
 		return models.ClienteTransacoes{}, errors.New("BUSCA_CLIENTE_EXCEPTION")
 	}
 
@@ -50,7 +61,7 @@ func InsertTransacao(idCliente int, transacaoRequest models.Transacao, dbPool *p
 	}
 
 	// Busca os dados do cliente
-	clienteDB, err := BuscarCliente(idCliente, tx)
+	clienteDB, err := BuscarClienteTx(idCliente, tx)
 	if err != nil {
 		return nil, err
 	}
@@ -109,25 +120,9 @@ func adicionarNovaTransacao(ultimasTransacoes []models.TransacaoExtrato, novaTra
 }
 
 func GetExtrato(idCliente int, dbPool *pgxpool.Pool) (extrato models.Extrato, err error) {
-	ctx := context.Background()
-
-	// Iniciando a transação
-	tx, err := dbPool.Begin(ctx)
-	if err != nil {
-		return models.Extrato{}, err
-	}
-	defer func() {
-		if err != nil {
-			tx.Rollback(ctx)
-			return
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return
-		}
-	}()
 
 	// Busca os dados do cliente
-	clienteDB, err := BuscarCliente(idCliente, tx)
+	clienteDB, err := BuscarCliente(idCliente, dbPool)
 	if err != nil {
 		return models.Extrato{}, err
 	}

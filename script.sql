@@ -3,7 +3,7 @@ CREATE TABLE cliente (
 	nome VARCHAR(50) NOT NULL,
 	limite INTEGER NOT NULL,
 	saldo INTEGER NOT NULL,
-	ultimas_transacoes json
+	ultimas_transacoes JSONB
 );
 
 DO $$
