@@ -35,10 +35,11 @@ func main() {
 }
 
 func connectToDatabase(conf configs.DBConfig) (*pgxpool.Pool, error) {
+
 	connectionString := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		conf.Host, conf.Port, conf.User, conf.Pass, conf.Database)
 
-	const defaultMaxConns = int32(400)
+	const defaultMaxConns = int32(150)
 	const defaultMinConns = int32(50)
 
 	dbConfig, err := pgxpool.ParseConfig(connectionString)
@@ -48,6 +49,7 @@ func connectToDatabase(conf configs.DBConfig) (*pgxpool.Pool, error) {
 
 	dbConfig.MaxConns = defaultMaxConns
 	dbConfig.MinConns = defaultMinConns
+	dbConfig.ConnConfig.PreferSimpleProtocol = true
 
 	return pgxpool.ConnectConfig(context.Background(), dbConfig)
 }
